@@ -56,6 +56,29 @@ TESSERACT_IGNORE_WARNINGS_POP
 #include "tesseract_ros/kdl/kdl_utils.h"
 #include "tesseract_ros/ros_tesseract_utils.h"
 
+
+namespace
+{
+  std::string toString(const std::vector<std::string>& strings)
+  {
+    std::stringstream ss;
+    for(const auto& str : strings)
+    {
+      ss << "\"" << str << "\", ";
+    }
+    return ss.str();
+  }
+
+
+template <typename T>
+bool containedIn(const std::vector<T>& vector, const T& value)
+{
+    const auto found_it = std::find(vector.begin(), vector.end(), value);
+    return found_it != vector.end();
+}
+
+}
+
 const std::string DEFAULT_DISCRETE_CONTACT_MANAGER_PLUGIN_PARAM = "tesseract_collision/BulletDiscreteBVHManager";
 const std::string DEFAULT_CONTINUOUS_CONTACT_MANAGER_PLUGIN_PARAM = "tesseract_collision/BulletCastBVHManager";
 
@@ -136,6 +159,7 @@ bool KDLEnv::init(urdf::ModelInterfaceConstSharedPtr urdf_model, srdf::ModelCons
       if (!group.joints_.empty())
       {
         addManipulator(group.joints_, group.name_);
+        ROS_ERROR_STREAM("******* ADDING MANIPULATOR " << group.name_ << " with joints: " << toString(group.joints_));
       }
 
       // TODO: Need to add other options

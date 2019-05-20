@@ -188,8 +188,9 @@ public:
 
   void waitForInput() override
   {
-    ROS_ERROR("Hit enter key to step optimization!");
-    std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+    // yo nigga
+    //ROS_ERROR("Hit enter key to step optimization!");
+    //std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
   }
 
 private:

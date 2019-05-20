@@ -31,9 +31,31 @@ TESSERACT_IGNORE_WARNINGS_PUSH
 #include <ros/ros.h>
 #include <urdf/model.h>
 TESSERACT_IGNORE_WARNINGS_POP
-
+#include <boost/range/algorithm/count_if.hpp>
 #include "tesseract_ros/kdl/kdl_joint_kin.h"
 #include "tesseract_ros/kdl/kdl_utils.h"
+
+namespace
+{
+  std::string toString(const std::vector<std::string>& strings)
+  {
+    std::stringstream ss;
+    for(const auto& str : strings)
+    {
+      ss << "\"" << str << "\", ";
+    }
+    return ss.str();
+  }
+
+  
+template <typename T>
+bool containedIn(const std::vector<T>& vector, const T& value)
+{
+    const auto found_it = std::find(vector.begin(), vector.end(), value);
+    return found_it != vector.end();
+}
+
+}
 
 namespace tesseract
 {
@@ -50,8 +72,15 @@ KDL::JntArray KDLJointKin::getKDLJntArray(const EnvState& state,
 
   KDL::JntArray kdl_joints;
   kdl_joints.resize(static_cast<unsigned>(state.joints.size()));
+  ROS_ERROR_STREAM("joints: " << toString(joint_names));
   for (const auto& jnt : state.joints)
-    kdl_joints.data(joint_to_qnr_.at(jnt.first)) = jnt.second;
+  {
+    if(containedIn(joint_names, jnt.first))
+    {
+      ROS_ERROR_STREAM("getKDLJntArray: Setting kdl joint values for" << jnt.first);
+      kdl_joints.data(joint_to_qnr_.at(jnt.first)) = jnt.second;
+    }
+  }
 
   for (unsigned i = 0; i < joint_names.size(); ++i)
     kdl_joints.data(joint_qnr_[i]) = joint_angles[i];
@@ -295,9 +324,17 @@ bool KDLJointKin::init(urdf::ModelInterfaceConstSharedPtr model,
     return false;
   }
 
-  joint_list_.resize(joint_names.size());
-  joint_limits_.resize(static_cast<long int>(joint_names.size()), 2);
-  joint_qnr_.resize(joint_names.size());
+  const int num_active_joints = 
+    boost::range::count_if(kdl_tree_.getSegments(), 
+                           [&joint_names](const KDL::SegmentMap::value_type& tree_element){
+                                const KDL::Segment& seg = tree_element.second.segment;
+                                const KDL::Joint& jnt = seg.getJoint();
+                                return (jnt.getType() != KDL::Joint::None) and containedIn(joint_names, jnt.getName());
+                           });
+
+  joint_list_.resize(num_active_joints);
+  joint_limits_.resize(static_cast<long int>(num_active_joints), 2);
+  joint_qnr_.resize(num_active_joints);
 
   unsigned j = 0;
   link_list_.push_back(kdl_tree_.getRootSegment()->second.segment.getName());
@@ -306,41 +343,35 @@ bool KDLJointKin::init(urdf::ModelInterfaceConstSharedPtr model,
     const KDL::Segment& seg = tree_element.second.segment;
     const KDL::Joint& jnt = seg.getJoint();
 
-    std::vector<std::string>::const_iterator joint_it =
-        std::find(joint_names.begin(), joint_names.end(), jnt.getName());
 
-    if (jnt.getType() != KDL::Joint::None)
-      joint_to_qnr_[jnt.getName()] = tree_element.second.q_nr;
-
-    if (joint_it == joint_names.end())
-      continue;
-
-    assert(jnt.getType() != KDL::Joint::None);
-
-    // Add affected link names to list
-    std::vector<std::string>::const_iterator link_it = std::find(link_list_.begin(), link_list_.end(), seg.getName());
-    if (link_it == link_list_.end())
-      addChildrenRecursive(model_->getLink(seg.getName()));
-
-    joint_list_[j] = jnt.getName();
-    joint_qnr_[j] = static_cast<int>(tree_element.second.q_nr);
-
-    urdf::JointConstSharedPtr joint = model_->getJoint(jnt.getName());
-    joint_limits_(j, 0) = joint->limits->lower;
-    joint_limits_(j, 1) = joint->limits->upper;
-
-    // Need to set limits for continuous joints. TODO: This may not be required
-    // by the optization library but may be nice to have
-    if (joint->type == urdf::Joint::CONTINUOUS &&
-        std::abs(joint_limits_(j, 0) - joint_limits_(j, 1)) <= std::numeric_limits<float>::epsilon())
+    if ((jnt.getType() != KDL::Joint::None) and containedIn(joint_names, jnt.getName()))
     {
-      joint_limits_(j, 0) = -4 * M_PI;
-      joint_limits_(j, 1) = +4 * M_PI;
-    }
-    ++j;
-  }
+      joint_to_qnr_[jnt.getName()] = tree_element.second.q_nr;
+    
 
-  assert(joint_names.size() == joint_list_.size());
+      // Add affected link names to list
+      std::vector<std::string>::const_iterator link_it = std::find(link_list_.begin(), link_list_.end(), seg.getName());
+      if (link_it == link_list_.end())
+        addChildrenRecursive(model_->getLink(seg.getName()));
+
+      joint_list_[j] = jnt.getName();
+      joint_qnr_[j] = static_cast<int>(tree_element.second.q_nr);
+
+      urdf::JointConstSharedPtr joint = model_->getJoint(jnt.getName());
+      joint_limits_(j, 0) = joint->limits->lower;
+      joint_limits_(j, 1) = joint->limits->upper;
+
+      // Need to set limits for continuous joints. TODO: This may not be required
+      // by the optization library but may be nice to have
+      if (joint->type == urdf::Joint::CONTINUOUS &&
+          std::abs(joint_limits_(j, 0) - joint_limits_(j, 1)) <= std::numeric_limits<float>::epsilon())
+      {
+        joint_limits_(j, 0) = -4 * M_PI;
+        joint_limits_(j, 1) = +4 * M_PI;
+      }
+      ++j;
+    }
+  }
 
   fk_solver_.reset(new KDL::TreeFkSolverPos_recursive(kdl_tree_));
   jac_solver_.reset(new KDL::TreeJntToJacSolver(kdl_tree_));
