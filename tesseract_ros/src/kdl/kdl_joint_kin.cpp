@@ -77,7 +77,7 @@ KDL::JntArray KDLJointKin::getKDLJntArray(const EnvState& state,
   {
     if(containedIn(joint_names, jnt.first))
     {
-      ROS_ERROR_STREAM("getKDLJntArray: Setting kdl joint values for" << jnt.first);
+      ROS_ERROR_STREAM("getKDLJntArray: Setting " << jnt.first << " to " << jnt.second);
       kdl_joints.data(joint_to_qnr_.at(jnt.first)) = jnt.second;
     }
   }
